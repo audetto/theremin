@@ -26,3 +26,10 @@
 *.exe
 *.out
 *.app
+
+# cmake
+CMakeFiles
+CMakeCache.txt
+Makefile
+cmake_install.cmake
+theremin
