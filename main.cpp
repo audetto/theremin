@@ -20,6 +20,31 @@ namespace
     size_t nv; // new volume asap
   };
 
+  // this average rounds towards the target
+  // so eventually it sets to the target
+  size_t average(const size_t x1, const size_t x2, const size_t w1)
+  {
+    if (x1 == x2)
+    {
+      return x1;
+    }
+
+    const double y = double(w1 * x1 + x2) / double(w1 + 1);
+    size_t result;
+    if (x2 > x1)
+    {
+      // we are going up towards x2
+      result = std::ceil(y);
+    }
+    else
+    {
+      // we are going down towards x2
+      result = std::floor(y);
+    }
+
+    return result;
+  }
+
   void audioCallback(void* userdata, Uint8* stream, int len)
   {
     AudioData * audioData = static_cast<AudioData *>(userdata);
@@ -43,8 +68,9 @@ namespace
       {
 	// average a bit to reduce the chance of crackling
 	const size_t leftWeight = 4;
-	audioData->f = (leftWeight * audioData->f + audioData->nf) / (leftWeight + 1);
-	audioData->v = (leftWeight * audioData->v + audioData->nv) / (leftWeight + 1);
+
+	audioData->f = average(audioData->f, audioData->nf, leftWeight);
+	audioData->v = average(audioData->v, audioData->nv, leftWeight);
 	// and reset the counter, so "%" operates properly
 	audioData->t = 0;
       }
