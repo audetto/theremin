@@ -120,10 +120,11 @@ namespace
   }
 
   // x in [0, 1]
-  // output in [440 / 5, 440 * 5]
+  // output in [440 / 2, 440 * 2]
+  // 4 octaves
   double interpolateFrequency(double x)
   {
-    const double halfRange = 5.0;
+    const double halfRange = 2.0;
     const double k = std::log(halfRange);
     const double mult = std::exp(2.0 * k * x) / halfRange;
 
