@@ -2,48 +2,70 @@
 #include <iostream>
 #include <cmath>
 #include <limits>
+#include <list>
 
 namespace
 {
 
+  double sawtooth(double x)
+  {
+    // period 1, range [-1, 1]
+    return 2.0 * (x - std::floor(0.5 + x));
+  }
+
+  double triangle(double x)
+  {
+    // period 1, range [-1, 1]
+    return 2.0 * std::abs(sawtooth(x)) - 1.0;
+  }
+
+  double square(double x)
+  {
+    return x - std::floor(x) > 0.5 ? 1.0 : 0.0;
+  }
+
+  double wave(double x, int type)
+  {
+    switch (type % 4)
+    {
+    case 0: return std::sin(2.0 * M_PI * x);
+    case 1: return sawtooth(x);
+    case 2: return triangle(x);
+    case 3: return square(x);
+    default: return 0;
+    }
+  }
+
+  struct Note
+  {
+    Note (double f, double v, double s, double a, double t)
+      : frequency(f), volume(v), start(s), amplitude(a), target(t)
+    {
+    }
+
+    const double frequency;
+    const double volume;
+
+    const double start;
+
+    double amplitude;
+    double target;
+  };
+
   struct AudioData
   {
     SDL_AudioDeviceID dev;
-    size_t freq; // frequency of the audio device (e.g. 48000)
 
-    size_t t; // time in samples from the last rest
+    double t; // time from the begin
+    double dt; // sample period (e.g. 1 / 48000)
 
-    size_t f; // note to play: period in samples
-    size_t nf; // new frequency to play as soon as possible
+    double decay;
+    double threshold;
 
-    size_t v; // volume
-    size_t nv; // new volume asap
+    int type;
+
+    std::list<Note> notes;
   };
-
-  // this average rounds towards the target
-  // so eventually it sets to the target
-  size_t average(const size_t x1, const size_t x2, const size_t w1)
-  {
-    if (x1 == x2)
-    {
-      return x1;
-    }
-
-    const double y = double(w1 * x1 + x2) / double(w1 + 1);
-    size_t result;
-    if (x2 > x1)
-    {
-      // we are going up towards x2
-      result = std::ceil(y);
-    }
-    else
-    {
-      // we are going down towards x2
-      result = std::floor(y);
-    }
-
-    return result;
-  }
 
   void audioCallback(void* userdata, Uint8* stream, int len)
   {
@@ -52,38 +74,75 @@ namespace
     Sint16* buf = (Sint16*)stream;
     const int bytesPerSample = sizeof(Sint16) / sizeof(Uint8);
 
+    const double coeff = std::exp(- audioData->dt * audioData->decay);
+
     const size_t numberOfSamples = len / bytesPerSample;
+
     for (size_t i = 0; i < numberOfSamples; ++i)
     {
-      const size_t t = audioData->t;
+      std::list<Note>::iterator it = audioData->notes.begin();
 
-      const size_t f = audioData->f;
-      const size_t nf = audioData->nf;
-      const size_t v = audioData->v;
-      const size_t nv = audioData->nv;
+      double w = 0.0;
 
-      // if there is a pending change
-      // and we are at the end of a period
-      if ((nf != f || nv != v) && (f == 0 || t % f == 0))
+      while (it != audioData->notes.end())
       {
-	// average a bit to reduce the chance of crackling
-	const size_t leftWeight = 4;
+	Note & n = *it;
 
-	audioData->f = average(audioData->f, audioData->nf, leftWeight);
-	audioData->v = average(audioData->v, audioData->nv, leftWeight);
-	// and reset the counter, so "%" operates properly
-	audioData->t = 0;
+	const double x = n.frequency * (audioData->t - n.start);
+	const double value = n.amplitude * n.volume * wave(x, audioData->type);
+	w += value;
+
+	// step towards the target
+	n.amplitude = n.target + (n.amplitude - n.target) * coeff;
+
+	if (std::abs(n.amplitude - n.target) < audioData->threshold)
+	{
+	  n.amplitude = n.target;
+	}
+
+	if (n.amplitude == 0.0)
+	{
+	  it = audioData->notes.erase(it);
+	}
+	else
+	{
+	  ++it;
+	}
       }
 
-      if (f != 0)
-      {
-	const double x = 2.0 * M_PI * double(audioData->t) / double(audioData->f);
-	const Sint16 value = audioData->v * sin(x);
-	buf[i] = value;
-
-	++audioData->t;
-      }
+      w = std::min(w, double(std::numeric_limits<Sint16>::max()));
+      w = std::max(w, double(std::numeric_limits<Sint16>::min()));
+      buf[i] = w;
+      audioData->t += audioData->dt;
     }
+  }
+
+  void addNote(AudioData & audioData, const double frequency, const double volume)
+  {
+    std::cout << "NEW NOTE: " << frequency << " @ " << volume << " [" << audioData.notes.size() << "]" << std::endl;
+
+    Note & top = audioData.notes.front();
+
+    // current note will go to silent
+    top.target = 0.0;
+
+    double start = audioData.t;
+    if (frequency != 0.0)
+    {
+      const double currentFrequency = top.frequency;
+      const double currentStart = top.start;
+
+      // give the new note the same phase as the old one
+      start -= (audioData.t - currentStart) * currentFrequency / frequency;
+    }
+
+    const double amplitude = 0.0;  // start silent
+    const double target = 1.0;     // and grow to full size
+
+    // only lock for the minimum time required
+    SDL_LockAudioDevice(audioData.dev);
+    audioData.notes.emplace_front(frequency, volume, start, amplitude, target);
+    SDL_UnlockAudioDevice(audioData.dev);
   }
 
   void openAudio(AudioData & audioData)
@@ -94,25 +153,27 @@ namespace
     want.freq = 48000;
     want.format = AUDIO_S16;
     want.channels = 1;
-    want.samples = 4096;
     want.callback = &audioCallback;
     want.userdata = &audioData;
 
-    audioData.dev = SDL_OpenAudioDevice(NULL, 0, &want, &have, SDL_AUDIO_ALLOW_ANY_CHANGE);
+    audioData.dev = SDL_OpenAudioDevice(NULL, 0, &want, &have, SDL_AUDIO_ALLOW_FREQUENCY_CHANGE);
 
     if (audioData.dev == 0)
     {
-      std::cout << "Failed to open audio: " << SDL_GetError() << std::endl;
+      throw std::runtime_error("Failed to open audio: ");
     }
     else
     {
-      audioData.freq = have.freq;
+      audioData.dt = 1.0 / have.freq;
+      audioData.t = 0.0;
 
-      audioData.t = 0;
-      audioData.v = 0;
-      audioData.nv = 0;
-      audioData.f = 0;
-      audioData.nf = 0;
+      audioData.decay = 50.0;
+      audioData.threshold = 0.0000001;
+
+      audioData.type = 0;
+
+      // add silence
+      audioData.notes.emplace_front(0.0, 0.0, 0.0, 1.0, 1.0);
 
       SDL_PauseAudioDevice(audioData.dev, 0);
     }
@@ -121,7 +182,7 @@ namespace
 
   // x in [0, 1]
   // output in [440 / 2, 440 * 2]
-  // 4 octaves
+  // 2 octaves
   double interpolateFrequency(double x)
   {
     const double halfRange = 2.0;
@@ -132,26 +193,27 @@ namespace
     return freq;
   }
 
-}
-
-int main(int argc, char * argv[])
-{
-  const int ok = SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_AUDIO);
-
-  if (ok)
+  void theremin()
   {
-    std::cout << "Error: " << ok << std::endl;
-  }
+    const int ok = SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_AUDIO);
 
-  const int joyID = 0;
-  SDL_Joystick* joy = SDL_JoystickOpen(joyID);
+    if (ok)
+    {
+      throw std::runtime_error("Failed to initialise SDL");
+    }
 
-  AudioData audioData;
+    AudioData audioData;
 
-  openAudio(audioData);
+    openAudio(audioData);
 
-  if (joy)
-  {
+    const int joyID = 0;
+    SDL_Joystick* joy = SDL_JoystickOpen(joyID);
+
+    if (!joy)
+    {
+      throw std::runtime_error("Failed to open joystick");
+    }
+
     const int numberOfAxes = SDL_JoystickNumAxes(joy);
     std::cout << "Opened Joystick " << joyID << std::endl;
     std::cout << "Name: "<< SDL_JoystickName(joy) << std::endl;
@@ -180,31 +242,55 @@ int main(int argc, char * argv[])
 	      {
 	      case 1: // volume
 		{
-		  const int value = je.value; // this is a Sint16
+		  const int value = -je.value; // this is a Sint16
 
 		  // this number is between 0 and 32767.5 = 32767
 		  const int volume = (value - std::numeric_limits<Sint16>::min()) / 2;
 
-		  SDL_LockAudioDevice(audioData.dev);
-		  audioData.nv = volume;
-		  SDL_UnlockAudioDevice(audioData.dev);
+		  addNote(audioData, audioData.notes.front().frequency, volume);
 		  break;
 		}
 	      case 4: // freq
 		{
-		  const int value = je.value; // Sint16
+		  const int value = -je.value; // Sint16
 		  const double ratio = (value - std::numeric_limits<Sint16>::min()) /
 		    double(std::numeric_limits<Sint16>::max() - std::numeric_limits<Sint16>::min());
 
-		  const double freq = interpolateFrequency(ratio);
-		  const size_t f = std::lround(audioData.freq / freq); // this is the period in samples
+		  const double frequency = interpolateFrequency(ratio);
 
-		  SDL_LockAudioDevice(audioData.dev);
-		  audioData.nf = f;
-		  SDL_UnlockAudioDevice(audioData.dev);
+		  addNote(audioData, frequency, audioData.notes.front().volume);
 		  break;
 		}
 	      };
+	    }
+	    break;
+	  }
+	case SDL_JOYBUTTONDOWN:
+	  {
+	    const SDL_JoyButtonEvent & je = event.jbutton;
+
+	    if (id == je.which)
+	    {
+	      if (je.button == 8) // big middle button
+	      {
+		// ask SDL to quit
+		SDL_Event quit;
+		quit.type = SDL_QUIT;
+		quit.quit.timestamp = event.jbutton.timestamp;
+		SDL_PushEvent(&quit);
+	      }
+	      else
+	      {
+		// add some silence
+		addNote(audioData, audioData.notes.front().frequency, 0.0);
+
+		// and let it happen to get smooth change
+		SDL_Delay(100);
+
+		SDL_LockAudioDevice(audioData.dev);
+		++audioData.type; // loop wave type
+		SDL_UnlockAudioDevice(audioData.dev);
+	      }
 	    }
 	    break;
 	  }
@@ -214,9 +300,7 @@ int main(int argc, char * argv[])
 
 	    // set new volume target to 0
 	    // to avoid crackling
-	    SDL_LockAudioDevice(audioData.dev);
-	    audioData.nv = 0;
-	    SDL_UnlockAudioDevice(audioData.dev);
+	    addNote(audioData, audioData.notes.front().frequency, 0.0);
 	    break;
 	  }
 	}
@@ -224,18 +308,28 @@ int main(int argc, char * argv[])
     }
 
     SDL_JoystickClose(joy);
-  }
 
-  // wait a sec so the actual volume drops
-  // to reduce crackling on exit
-  SDL_Delay(500);
+    // wait a sec so the actual volume drops
+    // to reduce crackling on exit
+    SDL_Delay(500);
 
-  if (audioData.dev != 0)
-  {
     SDL_CloseAudioDevice(audioData.dev);
+
+    SDL_Quit();
   }
 
-  SDL_Quit();
+}
 
-  return 0;
+int main(int /* argc */,  char** /* argv */)
+{
+  try
+  {
+    theremin();
+    return 0;
+  }
+  catch (const std::exception & e)
+  {
+    std::cout << e.what() << std::endl;
+    return 1;
+  }
 }
