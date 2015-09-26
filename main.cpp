@@ -1,3 +1,5 @@
+#include "Options.h"
+
 #include <SDL.h>
 #include <iostream>
 #include <cmath>
@@ -145,7 +147,7 @@ namespace
     SDL_UnlockAudioDevice(audioData.dev);
   }
 
-  void openAudio(AudioData & audioData)
+  void openAudio(const ASI::Options & options, AudioData & audioData)
   {
     SDL_AudioSpec want, have;
 
@@ -167,7 +169,7 @@ namespace
       audioData.dt = 1.0 / have.freq;
       audioData.t = 0.0;
 
-      audioData.decay = 50.0;
+      audioData.decay = options.decay;
       audioData.threshold = 0.0000001;
 
       audioData.type = 0;
@@ -183,9 +185,9 @@ namespace
   // x in [0, 1]
   // output in [440 / 2, 440 * 2]
   // 2 octaves
-  double interpolateFrequency(double x)
+  double interpolateFrequency(const ASI::Options & options, double x)
   {
-    const double halfRange = 2.0;
+    const double halfRange = options.octaves / 2.0 + 1.0;
     const double k = std::log(halfRange);
     const double mult = std::exp(2.0 * k * x) / halfRange;
 
@@ -193,7 +195,7 @@ namespace
     return freq;
   }
 
-  void theremin()
+  void theremin(const ASI::Options & options)
   {
     const int ok = SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_AUDIO);
 
@@ -204,7 +206,7 @@ namespace
 
     AudioData audioData;
 
-    openAudio(audioData);
+    openAudio(options, audioData);
 
     const int joyID = 0;
     SDL_Joystick* joy = SDL_JoystickOpen(joyID);
@@ -256,7 +258,7 @@ namespace
 		  const double ratio = (value - std::numeric_limits<Sint16>::min()) /
 		    double(std::numeric_limits<Sint16>::max() - std::numeric_limits<Sint16>::min());
 
-		  const double frequency = interpolateFrequency(ratio);
+		  const double frequency = interpolateFrequency(options, ratio);
 
 		  addNote(audioData, frequency, audioData.notes.front().volume);
 		  break;
@@ -320,11 +322,15 @@ namespace
 
 }
 
-int main(int /* argc */,  char** /* argv */)
+int main(int argc,  char** argv)
 {
   try
   {
-    theremin();
+    ASI::Options options;
+    if (ASI::fillOptions(argc, argv, options))
+    {
+      theremin(options);
+    }
     return 0;
   }
   catch (const std::exception & e)
