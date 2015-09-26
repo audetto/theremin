@@ -292,6 +292,9 @@ namespace
 		SDL_LockAudioDevice(audioData.dev);
 		++audioData.type; // loop wave type
 		SDL_UnlockAudioDevice(audioData.dev);
+
+		// and let it happen to get smooth change
+		SDL_Delay(100);
 	      }
 	    }
 	    break;
