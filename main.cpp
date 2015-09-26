@@ -23,7 +23,7 @@ namespace
 
   double square(double x)
   {
-    return x - std::floor(x) > 0.5 ? 1.0 : 0.0;
+    return x - std::floor(x) > 0.5 ? 1.0 : -1.0;
   }
 
   double wave(double x, int type)
