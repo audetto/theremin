@@ -28,7 +28,7 @@ namespace
 
   double wave(double x, int type)
   {
-    switch (type % 4)
+    switch (type)
     {
     case 0: return std::sin(2.0 * M_PI * x);
     case 1: return sawtooth(x);
@@ -40,12 +40,13 @@ namespace
 
   struct Note
   {
-    Note (double f, double v, double s, double a, double t)
-      : frequency(f), volume(v), start(s), amplitude(a), target(t)
+    Note (double f, int w, double v, double s, double a, double t)
+      : frequency(f), type(w), volume(v), start(s), amplitude(a), target(t)
     {
     }
 
     const double frequency;
+    const int type;
     const double volume;
 
     const double start;
@@ -91,7 +92,7 @@ namespace
 	Note & n = *it;
 
 	const double x = n.frequency * (audioData->t - n.start);
-	const double value = n.amplitude * n.volume * wave(x, audioData->type);
+	const double value = n.amplitude * n.volume * wave(x, n.type);
 	w += value;
 
 	// step towards the target
@@ -143,7 +144,7 @@ namespace
 
     // only lock for the minimum time required
     SDL_LockAudioDevice(audioData.dev);
-    audioData.notes.emplace_front(frequency, volume, start, amplitude, target);
+    audioData.notes.emplace_front(frequency, audioData.type, volume, start, amplitude, target);
     SDL_UnlockAudioDevice(audioData.dev);
   }
 
@@ -175,7 +176,7 @@ namespace
       audioData.type = 0;
 
       // add silence
-      audioData.notes.emplace_front(0.0, 0.0, 0.0, 1.0, 1.0);
+      audioData.notes.emplace_front(0.0, audioData.type, 0.0, 0.0, 1.0, 1.0);
 
       SDL_PauseAudioDevice(audioData.dev, 0);
     }
@@ -283,18 +284,10 @@ namespace
 	      }
 	      else
 	      {
-		// add some silence
-		addNote(audioData, audioData.notes.front().frequency, 0.0);
-
-		// and let it happen to get smooth change
-		SDL_Delay(100);
-
-		SDL_LockAudioDevice(audioData.dev);
-		++audioData.type; // loop wave type
-		SDL_UnlockAudioDevice(audioData.dev);
-
-		// and let it happen to get smooth change
-		SDL_Delay(100);
+		// no need to lock
+		// the type in audiodata is only used by the event thread
+		// and copied into each note (in addNote())
+		audioData.type = (audioData.type + 1) % 4; // loop wave type
 	      }
 	    }
 	    break;
