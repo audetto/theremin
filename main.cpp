@@ -137,8 +137,9 @@ namespace
       const double currentFrequency = top.frequency;
       const double currentStart = top.start;
 
+      const double currentPhase = (audioData.t - currentStart) * currentFrequency;
       // give the new note the same phase as the old one
-      start -= (audioData.t - currentStart) * currentFrequency / frequency;
+      start -= currentPhase / frequency;
     }
 
     const double amplitude = 0.0;  // start silent
