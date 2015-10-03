@@ -183,6 +183,24 @@ namespace
 
   }
 
+  void openJoystick(SDL_Joystick* & joy, SDL_JoystickID & id)
+  {
+    const int joyID = 0;
+    joy = SDL_JoystickOpen(joyID);
+    id = 0;
+
+    if (joy)
+    {
+      const int numberOfAxes = SDL_JoystickNumAxes(joy);
+      std::cout << "Opened Joystick " << joyID << std::endl;
+      std::cout << "Name: "<< SDL_JoystickName(joy) << std::endl;
+      std::cout << "Number of Axes: " << numberOfAxes  << std::endl;
+      std::cout << "Number of Buttons: " << SDL_JoystickNumButtons(joy) << std::endl;
+      std::cout << "Number of Balls: " << SDL_JoystickNumBalls(joy) << std::endl;
+      id = SDL_JoystickInstanceID(joy);
+    }
+  }
+
   // x in [0, 1]
   // output in [440 / 2, 440 * 2]
   // 2 octaves
@@ -207,24 +225,13 @@ namespace
 
     AudioData audioData;
 
+    // failure to open the audio channel will result in an exception
     openAudio(options, audioData);
 
-    const int joyID = 0;
-    SDL_Joystick* joy = SDL_JoystickOpen(joyID);
+    SDL_Joystick* joy;
+    SDL_JoystickID id;
 
-    if (!joy)
-    {
-      throw std::runtime_error("Failed to open joystick");
-    }
-
-    const int numberOfAxes = SDL_JoystickNumAxes(joy);
-    std::cout << "Opened Joystick " << joyID << std::endl;
-    std::cout << "Name: "<< SDL_JoystickName(joy) << std::endl;
-    std::cout << "Number of Axes: " << numberOfAxes  << std::endl;
-    std::cout << "Number of Buttons: " << SDL_JoystickNumButtons(joy) << std::endl;
-    std::cout << "Number of Balls: " << SDL_JoystickNumBalls(joy) << std::endl;
-
-    const SDL_JoystickID id = SDL_JoystickInstanceID(joy);
+    openJoystick(joy, id);
 
     bool cont = true;
 
