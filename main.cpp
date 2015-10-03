@@ -81,13 +81,15 @@ namespace
 
     const size_t numberOfSamples = len / bytesPerSample;
 
+    const std::list<Note>::iterator end = audioData->notes.end();
+
     for (size_t i = 0; i < numberOfSamples; ++i)
     {
       std::list<Note>::iterator it = audioData->notes.begin();
 
       double w = 0.0;
 
-      while (it != audioData->notes.end())
+      while (it != end)
       {
 	Note & n = *it;
 
